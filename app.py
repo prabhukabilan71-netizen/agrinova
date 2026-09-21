@@ -13,42 +13,58 @@ from flask import (
     render_template,
     flash
 )
+
 from werkzeug.security import generate_password_hash, check_password_hash
 
-# Gemini
 try:
     from google import genai
 except ImportError:
     genai = None
 
 
-# ============================================================
-# APP CONFIGURATION
-# ============================================================
+# =========================================================
+# AGRI NOVA
+# =========================================================
 
-app = Flask(__name__)
+app = Flask(
+    __name__,
+    template_folder="."
+)
 
 app.secret_key = os.environ.get(
     "FLASK_SECRET_KEY",
     "agrinova-development-secret-change-this"
 )
 
-# IMPORTANT:
-# Do NOT use /var/data here on a normal Render free service.
-DATABASE = os.environ.get("DATABASE_PATH", "agrinova.db")
 
-ESP_TOKEN = os.environ.get("ESP_TOKEN", "CHANGE_THIS_ESP_TOKEN")
+# =========================================================
+# SETTINGS
+# =========================================================
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+DATABASE = os.environ.get(
+    "DATABASE_PATH",
+    "agrinova.db"
+)
+
+ESP_TOKEN = os.environ.get(
+    "ESP_TOKEN",
+    "CHANGE_THIS_ESP_TOKEN"
+)
+
+GEMINI_API_KEY = os.environ.get(
+    "GEMINI_API_KEY",
+    ""
+)
+
 GEMINI_MODEL = os.environ.get(
     "GEMINI_MODEL",
     "gemini-3.8-flash"
 )
 
 
-# ============================================================
+# =========================================================
 # DATABASE
-# ============================================================
+# =========================================================
 
 def get_db():
     connection = sqlite3.connect(DATABASE)
@@ -57,7 +73,10 @@ def get_db():
 
 
 def init_database():
-    folder = os.path.dirname(os.path.abspath(DATABASE))
+
+    folder = os.path.dirname(
+        os.path.abspath(DATABASE)
+    )
 
     if folder:
         os.makedirs(folder, exist_ok=True)
@@ -93,27 +112,47 @@ def init_database():
         )
     """)
 
-    # Create one sensor row
     existing = db.execute(
         "SELECT id FROM sensor_data WHERE id = 1"
     ).fetchone()
 
     if existing is None:
+
         db.execute("""
             INSERT INTO sensor_data
-            (id, lux, temperature, moisture, ph, acidity, alkalinity, updated_at)
-            VALUES (1, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+            (
+                id,
+                lux,
+                temperature,
+                moisture,
+                ph,
+                acidity,
+                alkalinity,
+                updated_at
+            )
+            VALUES
+            (
+                1,
+                NULL,
+                NULL,
+                NULL,
+                NULL,
+                NULL,
+                NULL,
+                NULL
+            )
         """)
 
     db.commit()
     db.close()
 
 
-# ============================================================
-# HELPERS
-# ============================================================
+# =========================================================
+# FARMER FUNCTIONS
+# =========================================================
 
 def get_current_farmer():
+
     if "farmer_id" not in session:
         return None
 
@@ -130,6 +169,7 @@ def get_current_farmer():
 
 
 def login_required(function):
+
     @wraps(function)
     def wrapper(*args, **kwargs):
 
@@ -141,7 +181,12 @@ def login_required(function):
     return wrapper
 
 
+# =========================================================
+# SENSOR DATA
+# =========================================================
+
 def get_sensor_data():
+
     db = get_db()
 
     data = db.execute(
@@ -151,6 +196,7 @@ def get_sensor_data():
     db.close()
 
     if data is None:
+
         return {
             "lux": None,
             "temperature": None,
@@ -164,9 +210,9 @@ def get_sensor_data():
     return dict(data)
 
 
-# ============================================================
-# HOME / LOGIN
-# ============================================================
+# =========================================================
+# HOME
+# =========================================================
 
 @app.route("/")
 def index():
@@ -177,22 +223,43 @@ def index():
     return render_template("login.html")
 
 
+# =========================================================
+# LOGIN
+# =========================================================
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
 
     if request.method == "POST":
 
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
+        username = request.form.get(
+            "username",
+            ""
+        ).strip()
+
+        password = request.form.get(
+            "password",
+            ""
+        )
 
         if not username or not password:
-            flash("Please enter username and password.")
-            return redirect(url_for("login"))
+
+            flash(
+                "Please enter username and password."
+            )
+
+            return redirect(
+                url_for("login")
+            )
 
         db = get_db()
 
         farmer = db.execute(
-            "SELECT * FROM farmers WHERE username = ?",
+            """
+            SELECT *
+            FROM farmers
+            WHERE username = ?
+            """,
             (username,)
         ).fetchone()
 
@@ -207,62 +274,109 @@ def login():
             session["username"] = farmer["username"]
 
             if farmer["profile_done"]:
-                return redirect(url_for("dashboard"))
 
-            return redirect(url_for("profile"))
+                return redirect(
+                    url_for("dashboard")
+                )
 
-        flash("Invalid username or password.")
+            return redirect(
+                url_for("profile")
+            )
+
+        flash(
+            "Invalid username or password."
+        )
 
     return render_template("login.html")
 
 
-# ============================================================
+# =========================================================
 # REGISTER
-# ============================================================
+# =========================================================
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
 
     if request.method == "POST":
 
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
+        username = request.form.get(
+            "username",
+            ""
+        ).strip()
+
+        password = request.form.get(
+            "password",
+            ""
+        )
 
         if not username or not password:
-            flash("Username and password are required.")
-            return redirect(url_for("register"))
+
+            flash(
+                "Username and password are required."
+            )
+
+            return redirect(
+                url_for("register")
+            )
 
         db = get_db()
 
         existing = db.execute(
-            "SELECT id FROM farmers WHERE username = ?",
+            """
+            SELECT id
+            FROM farmers
+            WHERE username = ?
+            """,
             (username,)
         ).fetchone()
 
         if existing:
+
             db.close()
-            flash("Username already exists.")
-            return redirect(url_for("register"))
 
-        password_hash = generate_password_hash(password)
+            flash(
+                "Username already exists."
+            )
 
-        cursor = db.execute("""
+            return redirect(
+                url_for("register")
+            )
+
+        password_hash = generate_password_hash(
+            password
+        )
+
+        cursor = db.execute(
+            """
             INSERT INTO farmers
-            (username, password_hash, name, age, location, state,
-             farm_size, crop, profile_done, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            username,
-            password_hash,
-            "",
-            None,
-            "",
-            "",
-            None,
-            "",
-            0,
-            datetime.utcnow().isoformat()
-        ))
+            (
+                username,
+                password_hash,
+                name,
+                age,
+                location,
+                state,
+                farm_size,
+                crop,
+                profile_done,
+                created_at
+            )
+            VALUES
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                username,
+                password_hash,
+                "",
+                None,
+                "",
+                "",
+                None,
+                "",
+                0,
+                datetime.utcnow().isoformat()
+            )
+        )
 
         farmer_id = cursor.lastrowid
 
@@ -272,14 +386,16 @@ def register():
         session["farmer_id"] = farmer_id
         session["username"] = username
 
-        return redirect(url_for("profile"))
+        return redirect(
+            url_for("profile")
+        )
 
     return render_template("register.html")
 
 
-# ============================================================
+# =========================================================
 # FARMER PROFILE
-# ============================================================
+# =========================================================
 
 @app.route("/profile", methods=["GET", "POST"])
 @login_required
@@ -288,65 +404,123 @@ def profile():
     farmer = get_current_farmer()
 
     if farmer is None:
+
         session.clear()
-        return redirect(url_for("login"))
+
+        return redirect(
+            url_for("login")
+        )
 
     if request.method == "POST":
 
-        name = request.form.get("name", "").strip()
-        age_text = request.form.get("age", "").strip()
-        location = request.form.get("location", "").strip()
-        state = request.form.get("state", "").strip()
-        farm_size_text = request.form.get("farm_size", "").strip()
-        crop = request.form.get("crop", "").strip()
+        name = request.form.get(
+            "name",
+            ""
+        ).strip()
+
+        age_text = request.form.get(
+            "age",
+            ""
+        ).strip()
+
+        location = request.form.get(
+            "location",
+            ""
+        ).strip()
+
+        state = request.form.get(
+            "state",
+            ""
+        ).strip()
+
+        farm_size_text = request.form.get(
+            "farm_size",
+            ""
+        ).strip()
+
+        crop = request.form.get(
+            "crop",
+            ""
+        ).strip()
 
         try:
-            age = int(age_text) if age_text else None
+
+            age = (
+                int(age_text)
+                if age_text
+                else None
+            )
+
         except ValueError:
+
             age = None
 
         try:
-            farm_size = float(farm_size_text) if farm_size_text else None
+
+            farm_size = (
+                float(farm_size_text)
+                if farm_size_text
+                else None
+            )
+
         except ValueError:
+
             farm_size = None
 
         if not name:
-            flash("Please enter your name.")
-            return redirect(url_for("profile"))
+
+            flash(
+                "Please enter your name."
+            )
+
+            return redirect(
+                url_for("profile")
+            )
 
         db = get_db()
 
-        db.execute("""
+        db.execute(
+            """
             UPDATE farmers
-            SET name = ?,
+
+            SET
+                name = ?,
                 age = ?,
                 location = ?,
                 state = ?,
                 farm_size = ?,
                 crop = ?,
                 profile_done = 1
+
             WHERE id = ?
-        """, (
-            name,
-            age,
-            location,
-            state,
-            farm_size,
-            crop,
-            session["farmer_id"]
-        ))
+            """,
+            (
+                name,
+                age,
+                location,
+                state,
+                farm_size,
+                crop,
+                session["farmer_id"]
+            )
+        )
 
         db.commit()
         db.close()
 
-        return redirect(url_for("dashboard"))
+        return redirect(
+            url_for("dashboard")
+        )
 
-    return render_template("profile.html", farmer=farmer)
+    return render_template(
+        "profile.html",
+        farmer=farmer
+    )
 
 
-# ============================================================
+# =========================================================
 # DASHBOARD
-# ============================================================
+# =========================================================
 
 @app.route("/dashboard")
 @login_required
@@ -355,11 +529,18 @@ def dashboard():
     farmer = get_current_farmer()
 
     if farmer is None:
+
         session.clear()
-        return redirect(url_for("login"))
+
+        return redirect(
+            url_for("login")
+        )
 
     if not farmer["profile_done"]:
-        return redirect(url_for("profile"))
+
+        return redirect(
+            url_for("profile")
+        )
 
     sensors = get_sensor_data()
 
@@ -370,15 +551,16 @@ def dashboard():
     )
 
 
-# ============================================================
+# =========================================================
 # MY FARM
-# ============================================================
+# =========================================================
 
 @app.route("/myfarm")
 @login_required
 def myfarm():
 
     farmer = get_current_farmer()
+
     sensors = get_sensor_data()
 
     return render_template(
@@ -388,9 +570,9 @@ def myfarm():
     )
 
 
-# ============================================================
+# =========================================================
 # SENSOR API
-# ============================================================
+# =========================================================
 
 @app.route("/api/sensors")
 def api_sensors():
@@ -403,38 +585,55 @@ def api_sensors():
     })
 
 
-# ============================================================
-# ESP8266 → WEBSITE
-# ============================================================
+# =========================================================
+# ESP8266 UPDATE
+# =========================================================
 
-@app.route("/api/esp/update", methods=["POST"])
+@app.route(
+    "/api/esp/update",
+    methods=["POST"]
+)
 def esp_update():
 
-    supplied_token = request.headers.get("X-ESP-TOKEN", "")
+    supplied_token = request.headers.get(
+        "X-ESP-TOKEN",
+        ""
+    )
 
     if supplied_token != ESP_TOKEN:
+
         return jsonify({
             "success": False,
             "error": "Unauthorized ESP8266"
         }), 401
 
-    data = request.get_json(silent=True)
+    data = request.get_json(
+        silent=True
+    )
 
     if not data:
+
         return jsonify({
             "success": False,
             "error": "JSON data required"
         }), 400
 
     def number(name):
+
         value = data.get(name)
 
         if value is None or value == "":
             return None
 
         try:
+
             return float(value)
-        except (ValueError, TypeError):
+
+        except (
+            ValueError,
+            TypeError
+        ):
+
             return None
 
     lux = number("lux")
@@ -448,25 +647,31 @@ def esp_update():
 
     db = get_db()
 
-    db.execute("""
+    db.execute(
+        """
         UPDATE sensor_data
-        SET lux = ?,
+
+        SET
+            lux = ?,
             temperature = ?,
             moisture = ?,
             ph = ?,
             acidity = ?,
             alkalinity = ?,
             updated_at = ?
+
         WHERE id = 1
-    """, (
-        lux,
-        temperature,
-        moisture,
-        ph,
-        acidity,
-        alkalinity,
-        updated
-    ))
+        """,
+        (
+            lux,
+            temperature,
+            moisture,
+            ph,
+            acidity,
+            alkalinity,
+            updated
+        )
+    )
 
     db.commit()
     db.close()
@@ -478,38 +683,51 @@ def esp_update():
     })
 
 
-# ============================================================
-# AI AGRICULTURE ASSISTANT
-# ============================================================
+# =========================================================
+# GEMINI AI
+# =========================================================
 
-@app.route("/ai", methods=["GET", "POST"])
+@app.route(
+    "/ai",
+    methods=["GET", "POST"]
+)
 @login_required
 def ai():
 
     farmer = get_current_farmer()
+
     sensors = get_sensor_data()
 
     answer = None
+
     question = ""
 
     if request.method == "POST":
 
-        question = request.form.get("question", "").strip()
+        question = request.form.get(
+            "question",
+            ""
+        ).strip()
 
         if not question:
-            answer = "Please enter an agriculture question."
+
+            answer = (
+                "Please enter an agriculture question."
+            )
 
         elif not GEMINI_API_KEY:
 
             answer = (
                 "Gemini AI is not configured yet. "
-                "Add GEMINI_API_KEY in Render Environment Variables."
+                "Add GEMINI_API_KEY in Render "
+                "Environment Variables."
             )
 
         elif genai is None:
 
             answer = (
-                "The Google Gemini package is not installed."
+                "The Google Gemini package "
+                "is not installed."
             )
 
         else:
@@ -521,9 +739,11 @@ def ai():
                 )
 
                 prompt = f"""
-You are Agri Nova, an agriculture-focused AI assistant.
+You are Agri Nova, an agriculture-focused
+AI assistant.
 
 Farmer information:
+
 Name: {farmer["name"]}
 Age: {farmer["age"]}
 Farm location: {farmer["location"]}
@@ -532,6 +752,7 @@ Farm size: {farmer["farm_size"]} acres
 Crop: {farmer["crop"]}
 
 Latest ESP8266 readings:
+
 Lux: {sensors["lux"]}
 Temperature: {sensors["temperature"]}
 Moisture: {sensors["moisture"]}
@@ -540,15 +761,20 @@ Acidity: {sensors["acidity"]}
 Alkalinity: {sensors["alkalinity"]}
 
 Farmer question:
+
 {question}
 
-Give a clear, practical agriculture answer.
+Give a clear and practical agriculture answer.
 
 Important:
+
 - Do not invent sensor readings.
-- If a sensor value is missing, say that it is unavailable.
-- Treat hobby-grade sensor readings as approximate.
-- Do not claim a diagnosis from sensor data.
+- If a sensor value is missing,
+  say that it is unavailable.
+- Treat hobby-grade sensor readings
+  as approximate.
+- Do not claim a diagnosis from
+  sensor data.
 - Give safety-conscious farming advice.
 """
 
@@ -561,9 +787,15 @@ Important:
 
             except Exception as error:
 
+                print(
+                    "Gemini error:",
+                    error
+                )
+
                 answer = (
                     "Gemini could not answer right now. "
-                    "Please check the Gemini API configuration."
+                    "Please check the Gemini API "
+                    "configuration."
                 )
 
     return render_template(
@@ -575,9 +807,9 @@ Important:
     )
 
 
-# ============================================================
+# =========================================================
 # HEALTH CHECK
-# ============================================================
+# =========================================================
 
 @app.route("/health")
 def health():
@@ -589,28 +821,39 @@ def health():
     })
 
 
-# ============================================================
+# =========================================================
 # LOGOUT
-# ============================================================
+# =========================================================
 
 @app.route("/logout")
 def logout():
 
     session.clear()
 
-    return redirect(url_for("login"))
+    return redirect(
+        url_for("login")
+    )
 
 
-# ============================================================
-# STARTUP
-# ============================================================
+# =========================================================
+# START DATABASE
+# =========================================================
 
 init_database()
 
 
+# =========================================================
+# START SERVER
+# =========================================================
+
 if __name__ == "__main__":
 
-    port = int(os.environ.get("PORT", 5000))
+    port = int(
+        os.environ.get(
+            "PORT",
+            5000
+        )
+    )
 
     app.run(
         host="0.0.0.0",
